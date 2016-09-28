@@ -126,6 +126,8 @@ def conv2d_matmul(image, kernel):
 def gaussian_1D(sigma):
 
 	N = 3*sigma
+	if(N%2==0):
+ 		N=N+1
 
  	gaussian_filter = np.zeros(N,1)
  	for i in range(N):
@@ -136,17 +138,58 @@ def gaussian_2D(sigmax, sigmay):
 
 	#HERE NEED TO MAKE USE OF THE 3 SIGMA RULE
  	(M, N) = (3*sigmay, 3*sigmax)
+ 	if(M%2==0):
+ 		M=M+1
+ 	if(N%2==0):
+ 		N=N+1
+
+ 	print(M,N)
  	#initialize the gaussian filter to 0
  	gaussian_filter = np.zeros((M,N))
  	for i in range(M):
  		for j in range(N):
- 			term1 = ((i-M/2)**2)/(2.0*sigmax**2)+((j-N/2)**2)/(2.0*sigmay**2)
+ 			term1 = (((i-M/2)**2)+((j-N/2)**2))/((2.0*sigmax**2)+(2.0*sigmay**2))
  			term2 = 2.0*math.pi*sigmax*sigmay
+
  			gaussian_filter[i,j] = math.exp(-term1)/term2
+ 	
 
  	return gaussian_filter
 
 
+def gradient_2D(sigma, axis):
+
+	N = 3*sigma
+	if(N%2==0):
+ 		N=N+1
+ 	#initialize the gaussian filter to 0
+ 	#axis=0 is horizontal edge detector
+	if axis==0:
+	 	gradient_filter = np.zeros((N,N))
+	 	for i in range(N):
+	 		for j in range(N):
+	 			term1 = ((i-N/2)**2+(j-N/2)**2)/(2.0*sigma**2)
+	 			term2 = 2.0*math.pi*(sigma**4)
+	 			gradient_filter[i,j] = -(i-N/2)*math.exp(-term1)/term2
+
+ 	#axis=1 is vertical edge detector
+	elif axis==1:
+	 	gradient_filter = np.zeros((N,N))
+	 	for i in range(N):
+	 		for j in range(N):
+	 			term1 = ((i-N/2)**2+(j-N/2)**2)/(2.0*sigma**2)
+	 			term2 = 2.0*math.pi*(sigma**4)
+	 			gradient_filter[i,j] = -(j-N/2)*math.exp(-term1)/term2
+
+ 	return gradient_filter
+
+def normxcorr2D(image, kernel):
+	output = signal.fftconvolve(image,np.fliplr(np.flipud(kernel)), mode='same')/np.linalg.norm(image)/np.linalg.norm(kernel)
+	return output
+
+def findWaldo(image, kernel):
+	corr = normxcorr2D(image, kernel)
+	return corr
 
 def main():
 
@@ -154,17 +197,37 @@ def main():
 	im = imreadGrayScale("waldoNoise.png")
 	kernel = imreadGrayScale("templateNoise.png")
 	cat = imreadGrayScale("cat.jpg")
-	toimage(cat).save('cat_before.jpg')
-
+	#toimage(cat).save('cat_before.jpg')
 
 	#PART 2: GAUSSIAN FILTER
-	gaussian_filter = gaussian_2D(15, 2)
-	(U, S, V) = np.linalg.svd(gaussian_filter)
-	output = signal.convolve2d(cat,gaussian_filter, boundary='fill', mode='same')
-	toimage(output).show()
+	#gaussian_filter = gaussian_2D(15, 2)
+	#fig = plt.figure()
+	#plt.imshow(gaussian_filter, cmap='rainbow')
+	#plt.show()
+	#output = signal.convolve2d(cat,gaussian_filter, boundary='fill', mode='same')
+	#toimage(output).save('cat_after.jpg')
 
-	fig = plt.figure()
-	plt.imshow(gaussian_filter, cmap='seismic')
-	plt.show()
+	#PART 3: GRADIENT
+	gradient_filterX = gradient_2D(2, axis=0)
+	gradient_filterY = gradient_2D(2, axis=1)
+	#print gradient_X
+	#toimage(kernel).show()
+	g_Y = signal.convolve2d(kernel,gradient_filterY, boundary='fill', mode='same')
+	g_X = signal.convolve2d(kernel,gradient_filterX, boundary='fill', mode='same')
+	mag_kernel = np.sqrt(g_X**2+g_Y**2)
+	#toimage(mag_kernel).show()
+
+	g_im_Y = signal.convolve2d(im,gradient_filterY, boundary='fill', mode='same')
+	g_im_X = signal.convolve2d(im,gradient_filterX, boundary='fill', mode='same')
+	mag_im = np.sqrt(g_im_X**2+g_im_Y**2)
+	#toimage(mag_im).show()
+
+	corr = normxcorr2D(mag_im, mag_kernel)
+	plt.imshow(corr, cmap='rainbow')
+	plt.imsave('normcorr.jpg', corr, cmap='rainbow')
+	#toimage(output).show()
+
+	indices = np.unravel_index(np.argmax(corr), corr.shape)
+	print indices
 
 main()
