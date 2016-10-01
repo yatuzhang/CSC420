@@ -7,7 +7,44 @@ from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 from scipy import signal
 from scipy.misc import toimage
+from skimage.feature import canny
+import networkx as nx
+import pylab
 
+def buildGraph(image):
+	#This builds a graph from a given
+	(M, N) = image.shape 
+	im_flattened = image.flatten()
+	G = nx.DiGraph()
+	G.add_nodes_from(range(0,M*N))
+
+
+	for i in range(M):
+		for j in range(N):
+			#handles corner cases
+			if i==0 and j==0:
+				G.add_edge(i*N+j, (i+1)*N+j,weight=im_flattened[(i+1)*N+j])
+				G.add_edge(i*N+j, (i+1)*N+j+1,weight=im_flattened[(i+1)*N+j+1])
+			elif i==0 and j==N-1:
+				G.add_edge(i*N+j, (i+1)*N+j,weight=im_flattened[(i+1)*N+j])
+				G.add_edge(i*N+j, (i+1)*N+j-1,weight=im_flattened[(i+1)*N+j-1])
+			elif i==0 and j!=0 and j!=N-1:
+				G.add_edge(i*N+j, (i+1)*N+j, weight=im_flattened[(i+1)*N+j])
+				G.add_edge(i*N+j, (i+1)*N+j+1, weight=im_flattened[(i+1)*N+j+1])
+				G.add_edge(i*N+j, (i+1)*N+j-1, weight=im_flattened[(i+1)*N+j-1])
+			elif i==M-1:
+				pass
+			elif j==0 and i!=0 and i!=M-1:
+				G.add_edge(i*N+j, (i+1)*N+j,weight=im_flattened[(i+1)*N+j])
+				G.add_edge(i*N+j, (i+1)*N+j+1,weight=im_flattened[(i+1)*N+j+1])
+			elif j==N-1 and i!=0 and i!=M-1:
+				G.add_edge(i*N+j, (i+1)*N+j, weight=im_flattened[(i+1)*N+j])
+				G.add_edge(i*N+j, (i+1)*N+j-1, weight=im_flattened[(i+1)*N+j-1])
+			else:
+				G.add_edge(i*N+j, (i+1)*N+j, weight=im_flattened[(i+1)*N+j])
+				G.add_edge(i*N+j, (i+1)*N+j+1, weight=im_flattened[(i+1)*N+j+1])
+				G.add_edge(i*N+j, (i+1)*N+j-1, weight=im_flattened[(i+1)*N+j-1])
+	return G
 
 def imreadGrayScale(image):
 	img = imread(image, 'L')
@@ -197,6 +234,10 @@ def main():
 	im = imreadGrayScale("waldoNoise.png")
 	kernel = imreadGrayScale("templateNoise.png")
 	cat = imreadGrayScale("cat.jpg")
+	tennisCourt = imreadGrayScale("tennisCourt.jpg")
+	seamCarving = imreadGrayScale("seam_carving.jpg")
+	zermatt = imreadGrayScale("zermatt.JPG")
+	paris = imreadGrayScale("paris.JPG")
 	#toimage(cat).save('cat_before.jpg')
 
 	#PART 2: GAUSSIAN FILTER
@@ -208,26 +249,61 @@ def main():
 	#toimage(output).save('cat_after.jpg')
 
 	#PART 3: GRADIENT
-	gradient_filterX = gradient_2D(2, axis=0)
-	gradient_filterY = gradient_2D(2, axis=1)
+	#gradient_filterX = gradient_2D(2, axis=0)
+	#gradient_filterY = gradient_2D(2, axis=1)
 	#print gradient_X
 	#toimage(kernel).show()
-	g_Y = signal.convolve2d(kernel,gradient_filterY, boundary='fill', mode='same')
-	g_X = signal.convolve2d(kernel,gradient_filterX, boundary='fill', mode='same')
-	mag_kernel = np.sqrt(g_X**2+g_Y**2)
+	#g_Y = signal.convolve2d(kernel,gradient_filterY, boundary='fill', mode='same')
+	#g_X = signal.convolve2d(kernel,gradient_filterX, boundary='fill', mode='same')
+	#mag_kernel = np.sqrt(g_X**2+g_Y**2)
 	#toimage(mag_kernel).show()
 
-	g_im_Y = signal.convolve2d(im,gradient_filterY, boundary='fill', mode='same')
-	g_im_X = signal.convolve2d(im,gradient_filterX, boundary='fill', mode='same')
-	mag_im = np.sqrt(g_im_X**2+g_im_Y**2)
+	#g_im_Y = signal.convolve2d(im,gradient_filterY, boundary='fill', mode='same')
+	#g_im_X = signal.convolve2d(im,gradient_filterX, boundary='fill', mode='same')
+	#mag_im = np.sqrt(g_im_X**2+g_im_Y**2)
 	#toimage(mag_im).show()
 
-	corr = normxcorr2D(mag_im, mag_kernel)
-	plt.imshow(corr, cmap='rainbow')
-	plt.imsave('normcorr.jpg', corr, cmap='rainbow')
-	#toimage(output).show()
+	#corr = normxcorr2D(mag_im, mag_kernel)
+	#plt.imshow(corr, cmap='rainbow')
+	#plt.show()
 
-	indices = np.unravel_index(np.argmax(corr), corr.shape)
-	print indices
+	#indices = np.unravel_index(np.argmax(corr), corr.shape)
+	#print indices
+
+
+	#PART 4: Canny Edge Detection
+	#gaussian_filter = gaussian_2D(3, 3)
+	#tennisCourt = signal.convolve2d(tennisCourt,gaussian_filter, boundary='symm', mode='same')
+	#edges = canny(tennisCourt, 1, 10, 20)
+	#toimage(edges).save("sigma1low10high20.jpg")
+	#sigma, low_threshold, high_threshold
+	#leaf_edges = canny(tennisCourt, 20, 20, 30)
+	#toimage(leaf_edges).show()
+	#plt.imshow(edges, cmap='rainbow')
+	#plt.show()
+
+
+	#PART 5: Dijkstra's Seam Carving
+
+	#Compute the Gradient
+	gradient_filterX = gradient_2D(2, axis=0)
+	gradient_filterY = gradient_2D(2, axis=1)
+	toimage(zermatt).show()
+	g_Y = signal.convolve2d(paris,gradient_filterY, boundary='fill', mode='same')
+	g_X = signal.convolve2d(paris,gradient_filterX, boundary='fill', mode='same')
+	mag = np.sqrt(g_X**2+g_Y**2)
+	print mag.shape
+	G = buildGraph(mag)
+	(M,N) = mag.shape
+	implot = plt.imshow(paris, cmap='Greys_r')
+	(row, col) = np.unravel_index(nx.dijkstra_path(G, 800, (M-1)*N+1000), (M,N))
+	plt.scatter(col, row, c='red', s=2)
+	(row, col) = np.unravel_index(nx.dijkstra_path(G, 0, (M-1)*N), (M,N))
+	plt.scatter(col, row, c='red', s=2)
+	(row, col) = np.unravel_index(nx.dijkstra_path(G, 600, (M-1)*N+250), (M,N))
+	plt.scatter(col, row, c='red', s=2)
+	plt.axis('off')
+	plt.show()
+
 
 main()
