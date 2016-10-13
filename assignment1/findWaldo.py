@@ -10,6 +10,9 @@ from scipy.misc import toimage
 from skimage.feature import canny
 import networkx as nx
 import pylab
+import cv2
+from matplotlib.patches import Rectangle
+import matplotlib.patches as patches
 
 def buildGraph(image):
 	#This builds a graph from a given
@@ -44,6 +47,35 @@ def buildGraph(image):
 				G.add_edge(i*N+j, (i+1)*N+j, weight=im_flattened[(i+1)*N+j])
 				G.add_edge(i*N+j, (i+1)*N+j+1, weight=im_flattened[(i+1)*N+j+1])
 				G.add_edge(i*N+j, (i+1)*N+j-1, weight=im_flattened[(i+1)*N+j-1])
+	return G
+
+def buildGraph_Segmentation(image):
+	#This builds a graph from a given
+	(M, N) = image.shape 
+	im_flattened = image.flatten()
+	G = nx.DiGraph()
+	G.add_nodes_from(range(0,M*N))
+
+
+	for i in range(1, M-1):
+		for j in range(1, N-1):
+			#Don't really care about corners here
+			#Down
+			G.add_edge(i*N+j, (i+1)*N+j,weight=im_flattened[(i+1)*N+j])
+			#Up
+			G.add_edge(i*N+j, (i-1)*N+j,weight=im_flattened[(i-1)*N+j])
+			#Left	
+			G.add_edge(i*N+j, i*N+j+1,weight=im_flattened[i*N+j+1])
+			#Right
+			G.add_edge(i*N+j, i*N+j-1,weight=im_flattened[i*N+j-1])
+			#Down right
+			G.add_edge(i*N+j, (i+1)*N+j+1,weight=im_flattened[(i+1)*N+j+1])
+			#Up right
+			G.add_edge(i*N+j, (i-1)*N+j+1,weight=im_flattened[(i-1)*N+j+1])
+			#Down left
+			G.add_edge(i*N+j, (i+1)*N+j-1,weight=im_flattened[(i+1)*N+j-1])
+			#Up left
+			G.add_edge(i*N+j, (i-1)*N+j-1,weight=im_flattened[(i-1)*N+j-1])
 	return G
 
 def imreadGrayScale(image):
@@ -162,19 +194,23 @@ def conv2d_matmul(image, kernel):
 
 def gaussian_1D(sigma):
 
-	N = 3*sigma
+	N = 6*sigma
 	if(N%2==0):
  		N=N+1
 
- 	gaussian_filter = np.zeros(N,1)
+ 	print N
+ 	gaussian_filter = np.zeros((N,1))
  	for i in range(N):
  			#Not too sure about here, can gaussian filter be even???
  		gaussian_filter[i] = math.exp(-(i-N/2)**2/(sigma**2))/(math.sqrt(2*math.pi)*sigma)
 
+ 	return gaussian_filter
+
+
 def gaussian_2D(sigmax, sigmay):
 
 	#HERE NEED TO MAKE USE OF THE 3 SIGMA RULE
- 	(M, N) = (3*sigmay, 3*sigmax)
+ 	(M, N) = (6*sigmay, 6*sigmax)
  	if(M%2==0):
  		M=M+1
  	if(N%2==0):
@@ -196,7 +232,7 @@ def gaussian_2D(sigmax, sigmay):
 
 def gradient_2D(sigma, axis):
 
-	N = 3*sigma
+	N = 6*sigma
 	if(N%2==0):
  		N=N+1
  	#initialize the gaussian filter to 0
@@ -225,8 +261,63 @@ def normxcorr2D(image, kernel):
 	return output
 
 def findWaldo(image, kernel):
-	corr = normxcorr2D(image, kernel)
-	return corr
+	k_r, k_c = kernel.shape
+
+	gradient_filterX = gradient_2D(1, axis=0)
+	gradient_filterY = gradient_2D(1, axis=1)
+	toimage(kernel).show()
+	g_Y = signal.convolve2d(kernel,gradient_filterY, boundary='fill', mode='same')
+	g_X = signal.convolve2d(kernel,gradient_filterX, boundary='fill', mode='same')
+	mag_kernel = np.sqrt(g_X**2+g_Y**2)
+	toimage(mag_kernel).show()
+
+	g_im_Y = signal.convolve2d(image,gradient_filterY, boundary='fill', mode='same')
+	g_im_X = signal.convolve2d(image,gradient_filterX, boundary='fill', mode='same')
+	mag_im = np.sqrt(g_im_X**2+g_im_Y**2)
+	#toimage(mag_im).show()
+
+	corr = normxcorr2D(mag_im, mag_kernel)
+	(max_x, max_y) = np.unravel_index(np.argmax(corr), corr.shape)
+
+	#plt.imshow(corr, cmap='rainbow')
+	#plt.show()
+
+	box_coor1 = (max_x-k_r/2, max_y-k_c/2)
+	box_coor2 = (max_x+k_r/2, max_y+k_c/2)
+
+	fig,ax = plt.subplots(1)
+	ax.imshow(image, cmap="Greys_r")
+	rect = patches.Rectangle((max_y-k_c/2,max_x-k_r/2),k_c,k_r,linewidth=1,edgecolor='r',facecolor='none')
+	ax.add_patch(rect)
+	plt.show()
+
+def SeamCarving(image, gradient, num_seams):
+
+	M, N = image.shape
+	im_flattened = image.flatten()
+	gradsums = []
+	# Repeat num_seams times.
+	for i in range(num_seams):
+		print i
+		last_row = (M-1)*N 
+		G = buildGraph(gradient)
+		for j in range(N):
+			for k in range(max(0,j+1-M), min(N, j+M)):
+				if(M>N or k<M):
+					gradsums.append((i, last_row+k, nx.dijkstra_path_length(G, j, last_row+k)))
+
+		gradsums.sort(key=lambda x: x[2])
+		#Get index and weight
+		x,y,value = gradsums[0]
+		gradsums = []
+		shortest_path = nx.dijkstra_path(G, x, y)
+		#Delete the paths
+		#reduce column by one
+		N = N - 1
+		im_flattened = np.delete(im_flattened, shortest_path)
+		gradient = np.delete(gradient, shortest_path).reshape(M, N)
+		print gradient.shape
+	return im_flattened.reshape(M,N)
 
 def main():
 
@@ -238,7 +329,8 @@ def main():
 	seamCarving = imreadGrayScale("seam_carving.jpg")
 	zermatt = imreadGrayScale("zermatt.JPG")
 	paris = imreadGrayScale("paris.JPG")
-	#toimage(cat).save('cat_before.jpg')
+	cattle = imreadGrayScale("cattle.png")
+	toimage(paris).save('paris_before.jpg')
 
 	#PART 2: GAUSSIAN FILTER
 	#gaussian_filter = gaussian_2D(15, 2)
@@ -249,27 +341,10 @@ def main():
 	#toimage(output).save('cat_after.jpg')
 
 	#PART 3: GRADIENT
-	#gradient_filterX = gradient_2D(2, axis=0)
-	#gradient_filterY = gradient_2D(2, axis=1)
-	#print gradient_X
-	#toimage(kernel).show()
-	#g_Y = signal.convolve2d(kernel,gradient_filterY, boundary='fill', mode='same')
-	#g_X = signal.convolve2d(kernel,gradient_filterX, boundary='fill', mode='same')
-	#mag_kernel = np.sqrt(g_X**2+g_Y**2)
-	#toimage(mag_kernel).show()
 
-	#g_im_Y = signal.convolve2d(im,gradient_filterY, boundary='fill', mode='same')
-	#g_im_X = signal.convolve2d(im,gradient_filterX, boundary='fill', mode='same')
-	#mag_im = np.sqrt(g_im_X**2+g_im_Y**2)
-	#toimage(mag_im).show()
-
-	#corr = normxcorr2D(mag_im, mag_kernel)
-	#plt.imshow(corr, cmap='rainbow')
-	#plt.show()
-
+	#findWaldo(im, kernel)
 	#indices = np.unravel_index(np.argmax(corr), corr.shape)
 	#print indices
-
 
 	#PART 4: Canny Edge Detection
 	#gaussian_filter = gaussian_2D(3, 3)
@@ -286,24 +361,54 @@ def main():
 	#PART 5: Dijkstra's Seam Carving
 
 	#Compute the Gradient
-	gradient_filterX = gradient_2D(2, axis=0)
-	gradient_filterY = gradient_2D(2, axis=1)
-	toimage(zermatt).show()
-	g_Y = signal.convolve2d(paris,gradient_filterY, boundary='fill', mode='same')
-	g_X = signal.convolve2d(paris,gradient_filterX, boundary='fill', mode='same')
-	mag = np.sqrt(g_X**2+g_Y**2)
-	print mag.shape
-	G = buildGraph(mag)
-	(M,N) = mag.shape
-	implot = plt.imshow(paris, cmap='Greys_r')
-	(row, col) = np.unravel_index(nx.dijkstra_path(G, 800, (M-1)*N+1000), (M,N))
-	plt.scatter(col, row, c='red', s=2)
-	(row, col) = np.unravel_index(nx.dijkstra_path(G, 0, (M-1)*N), (M,N))
-	plt.scatter(col, row, c='red', s=2)
-	(row, col) = np.unravel_index(nx.dijkstra_path(G, 600, (M-1)*N+250), (M,N))
-	plt.scatter(col, row, c='red', s=2)
-	plt.axis('off')
-	plt.show()
+	#gradient_filterX = gradient_2D(2, axis=0)
+	#gradient_filterY = gradient_2D(2, axis=1)
+	#toimage(paris).show()
+	#g_Y = signal.convolve2d(paris,gradient_filterY, boundary='fill', mode='same')
+	#g_X = signal.convolve2d(paris,gradient_filterX, boundary='fill', mode='same')
+	#mag = np.sqrt(g_X**2+g_Y**2)
 
+	im_new = SeamCarving(paris, mag, 10)
+	toimage(im_new).save("paris.jpg")
+	#print mag.shape
+	#G = buildGraph(mag)
+	#(M,N) = mag.shape
+	#implot = plt.imshow(paris, cmap='Greys_r')
+	#(row, col) = np.unravel_index(nx.dijkstra_path(G, 800, (M-1)*N+1000), (M,N))
+	#plt.scatter(col, row, c='red', s=2)
+	#(row, col) = np.unravel_index(nx.dijkstra_path(G, 0, (M-1)*N), (M,N))
+	#plt.scatter(col, row, c='red', s=2)
+	#(row, col) = np.unravel_index(nx.dijkstra_path(G, 600, (M-1)*N+250), (M,N))
+	#plt.scatter(col, row, c='red', s=2)
+	#plt.axis('off')
+	#plt.show()
 
+	#gradient_filterX = gradient_2D(2, axis=0)
+	#gradient_filterY = gradient_2D(2, axis=1)
+	#toimage(cattle).show()
+	#g_Y = signal.convolve2d(cattle,gradient_filterY, boundary='fill', mode='same')
+	#g_X = signal.convolve2d(cattle,gradient_filterX, boundary='fill', mode='same')
+	#mag = np.sqrt(g_X**2+g_Y**2)
+
+	#G = buildGraph_Segmentation(mag)
+	#(M,N) = mag.shape
+	#plt.imshow(cattle, cmap='Greys_r')
+	#num_points = 8
+	#x = plt.ginput(num_points)
+	#plt.show()
+	#implot = plt.imshow(cattle, cmap='Greys_r')
+	#for i in xrange(1,num_points,1):
+  		#x1, y1 = x[i-1]
+  		#x2, y2 = x[i]
+  		#point1 = int(y1*N+x1)
+  		#point2 = int(y2*N+x2)
+		#(row, col) = np.unravel_index(nx.dijkstra_path(G, point1, point2), (M,N))
+		#plt.scatter(col, row, c='red', s=3)
+  	#x1, y1 = x[-1]
+  	#x2, y2 = x[0]
+  	#point1 = int(y1*N+x1)
+  	#point2 = int(y2*N+x2)
+	#(row, col) = np.unravel_index(nx.dijkstra_path(G, point1, point2), (M,N))
+	#plt.scatter(col, row, c='red', s=3)
+	#plt.show()
 main()
