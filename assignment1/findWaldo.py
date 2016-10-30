@@ -18,6 +18,31 @@ def buildGraph(image):
 	#This builds a graph from a given
 	(M, N) = image.shape 
 	im_flattened = image.flatten()
+
+	#Build graph by patches and vectorization
+
+	#First, initialize a dense array of MxN x MxN  (filled with np.inf, meaning no edge)
+	sink = M*N
+	source = M*N+1
+
+	G_dense = np.full((M*N+2, M*N+2), np.inf)
+	#Build a 2D array of indices
+	indices = arange(M*N).reshape(M,N)
+	# Get windows and flatten, meaning no edge
+	patch_left_top = indices[0:M-1, 0:N-1].reshape(-1,1)
+	patch_right_bottom = indices[1:M, 1:N].reshape(-1,1)
+	patch_top_right = indices[0:M-1, 1:N].reshape(-1,1)
+	path_bottom_left = indices[1:M, 0:N-1].reshape(-1,1)
+	patch_top = indices[0:M-1, N]
+	patch_bottom = indices[1:M, N]
+
+	#Edit the weights
+	G_dense[patch_left_top, patch_right_bottom] = image_flatteneed[path_right_bottom]
+	G_dense[patch_top_right, patch_bottom_left] = image_flatteneed[path_bottom_left]
+	G_dense[patch_top, patch_bottom] = image_flatteneed[path_bottom]
+	#Edit Source and Sink
+	G_dense[sink,:]  = 
+	G_dense[source, :]
 	G = nx.DiGraph()
 	G.add_nodes_from(range(0,M*N))
 
